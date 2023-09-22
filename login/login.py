@@ -6,11 +6,10 @@ import httpx
 from urllib.parse import parse_qs, urlparse
 import os
 from datetime import datetime
-import pathlib
 
 
-class FyersAutoLogin:
-    def __init__(self, credentials_file="credentials.toml"):
+class FyersLogin:
+    def __init__(self, credentials_file="credentials.toml", token_file="access_token.txt"):
         with open(credentials_file, 'r') as f:
             config = toml.load(f)
         self.user_id = config['FYERS']['USER_ID']
@@ -29,6 +28,7 @@ class FyersAutoLogin:
             "TOKEN": "https://api-t1.fyers.in/api/v3/token",
         }
         self.session = httpx.AsyncClient()
+        self.token_file = token_file
     
     @staticmethod
     def get_encoded_string(string):
@@ -85,7 +85,7 @@ class FyersAutoLogin:
         session.set_token(auth_code)
         response = session.generate_token()
         access_token = response['access_token']
-        with open('access_token.txt', 'w') as f:
+        with open(self.token_file, 'w') as f:
             f.write(access_token)
         return access_token
     
@@ -96,28 +96,37 @@ class FyersAutoLogin:
         auth_code = await self.fetch_auth_token()
         return await self.generate_token(auth_code)
 
-
-class LoginHandle(FyersAutoLogin):
-    def __init__(self, token_file="access_token.txt", credentials_file="credentials.toml"):
-        super().__init__(credentials_file)
-        with open(credentials_file, 'r') as f:
-            self.config = toml.load(f)
-        self.token_file = token_file
-
     def is_token_from_today(self):
-        """Check if the token file was modified today."""
         if not os.path.exists(self.token_file):
             return False
-        
         token_mod_time = os.path.getmtime(self.token_file)
         token_date = datetime.fromtimestamp(token_mod_time).date()
         return token_date == datetime.now().date()
 
     async def get_valid_token(self):
-        """Retrieve the token if it's from today or generate a new one."""
         if self.is_token_from_today():
             with open(self.token_file, 'r') as f:
                 return f.read()
-        await self.auto_login()
+        return await self.auto_login()
 
-        return pathlib.Path(self.token_file).read_text()
+
+class BrokerHandler:
+    def __init__(self, credentials_file, access_token, log_path="../logs"):
+        with open(credentials_file, 'r') as f:
+            self.config = toml.load(f)
+        self.client_id = self.config['FYERS']['APP_ID']
+        self.bh = FyersLogin(credentials_file=credentials_file, token_file=access_token)
+        self.log_path = log_path
+        self.valid_token = None
+        self.fyers_instance = None
+
+    async def _initialize_fyers_instance(self):
+        self.valid_token = await self.bh.get_valid_token()
+        self.fyers_instance = fyersModel.FyersModel(client_id=self.client_id,
+                                                    is_async=True, token=self.valid_token,
+                                                    log_path=self.log_path)
+
+    async def get_instance(self):
+        if self.fyers_instance is None:
+            await self._initialize_fyers_instance()
+        return self.fyers_instance
