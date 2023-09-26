@@ -3,7 +3,12 @@ import json
 import requests
 from datetime import datetime
 from functools import lru_cache
-from typing import Literal, NewType, List, Dict
+from typing import (
+    Literal, 
+    NewType, 
+    List, 
+    Dict
+)
 
 
 DateFormat = NewType(name="dd-mm-YYYY", tp=str)
@@ -57,6 +62,7 @@ def format_holidays_data(data: List[Dict]) -> List[Dict]:
 @lru_cache(maxsize= None)
 def get_holidays(retry= 1) -> List[Dict]:
     holiday_data = os.path.join(os.path.dirname(__file__), 'holidays.json') 
+    current_year = str(datetime.now().year)
 
     if os.path.exists(holiday_data):
         try:
@@ -65,7 +71,14 @@ def get_holidays(retry= 1) -> List[Dict]:
                                 operation="r"
                                 )
             if holidays:
-                return holidays
+                if holidays[0]["holiday_date"].split("-")[2] == current_year:
+                    return holidays
+                else:
+                    print("Old data. Retrying..")
+                    get_holidays.cache_clear()
+                    os.remove(holiday_data)
+                    if retry <= 3:
+                        return get_holidays(retry = retry+1)
             else:
                 print("Empty file..")
                 get_holidays.cache_clear()
@@ -119,5 +132,3 @@ def isHoliday(
     else:
         return False
 
-
-            
